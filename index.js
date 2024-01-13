@@ -9,6 +9,7 @@ app.get("/", (req, res) => {
   res.send("App is running 👻");
 });
 
+app.use(express.json());
 app.use("/api/v1/", router);
 app.listen(port, () => {
   console.log(`Example app listening on port ${port}`);

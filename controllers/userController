@@ -1,1 +1,53 @@
-const express = require("express");
+const { PrismaClient } = require("@prisma/client");
+const prisma = new PrismaClient();
+const dataValidation = require("../dataValidation/dataValidation");
+const bcrypt = require("bcrypt");
+const Joi = require("joi");
+const jwt = require("jsonwebtoken");
+
+const userRegister = async (req, res) => {
+  const { name, surname, email, password } = req.body;
+  try {
+    const mailControl = await checkEmail(email);
+    if (!mailControl) {
+      const hashedPassword = await bcrypt.hash(password, 15);
+      const data = await prisma.users.create({
+        data: { name, surname, email, hashedPassword },
+      });
+      res.status(202).json({
+        error: false,
+        message: "User create successful!",
+        data: data,
+      });
+    } else if (mailControl) {
+      res.status(404).json({
+        error: true,
+        message: "This email already used.",
+        data: null,
+      });
+    } else {
+      return res.status(422).json({
+        error: true,
+        message: "The entered value does not meet the conditions",
+        data: dataValidation.error["details"][0].message,
+      });
+    }
+  } catch (error) {
+    res.status(404).json({
+      error: "true",
+      message: error,
+    });
+  }
+};
+
+async function checkEmail(email) {
+  console.log(email);
+  const userMailCheck = await prisma.users.findFirst({
+    where: { email: email },
+  });
+  return userMailCheck;
+}
+
+module.exports = {
+  userRegister,
+};

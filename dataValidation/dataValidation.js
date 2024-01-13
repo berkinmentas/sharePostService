@@ -19,4 +19,6 @@ const schema = Joi.object({
   }),
 });
 
-export default schema;
+module.exports = {
+  schema,
+};
