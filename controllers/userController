@@ -8,11 +8,13 @@ const jwt = require("jsonwebtoken");
 const userRegister = async (req, res) => {
   const { name, surname, email, password } = req.body;
   try {
+    const saltRounds = parseInt(process.env.SALT_ROUND);
+    const checkValidationData = dataValidation.schema.validate(req.body);
     const mailControl = await checkEmail(email);
-    if (!mailControl) {
-      const hashedPassword = await bcrypt.hash(password, 15);
+    if (!mailControl && !checkValidationData.error) {
+      const hashedPassword = await bcrypt.hash(password, saltRounds);
       const data = await prisma.users.create({
-        data: { name, surname, email, hashedPassword },
+        data: { name, surname, email, password: hashedPassword },
       });
       res.status(202).json({
         error: false,
@@ -23,6 +25,12 @@ const userRegister = async (req, res) => {
       res.status(404).json({
         error: true,
         message: "This email already used.",
+        data: null,
+      });
+    } else if (checkValidationData.error) {
+      return res.status(404).json({
+        error: true,
+        message: checkValidationData.error["details"][0].message,
         data: null,
       });
     } else {
@@ -39,15 +47,48 @@ const userRegister = async (req, res) => {
     });
   }
 };
-
+const userLogin = async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    const emailControl = await checkEmail(email);
+    const passwordControl = await checkPassword(email, password);
+    if (emailControl && passwordControl == true) {
+      return res.status(202).json({
+        error: false,
+        message: "Login successful!",
+        data: emailControl,
+      });
+    } else {
+      return res.status(404).json({
+        error: true,
+        message: "You entered the wrong password or email!",
+        data: null,
+      });
+    }
+  } catch (error) {
+    return res.status(404).json({
+      error: true,
+      message: error,
+      data: null,
+    });
+  }
+};
 async function checkEmail(email) {
-  console.log(email);
   const userMailCheck = await prisma.users.findFirst({
     where: { email: email },
   });
   return userMailCheck;
 }
+async function checkPassword(email, password) {
+  const user = await checkEmail(email);
+  if (user) {
+    const comparePassword = await bcrypt.compare(password, user.password);
+    return comparePassword;
+  }
+  return false;
+}
 
 module.exports = {
   userRegister,
+  userLogin,
 };
