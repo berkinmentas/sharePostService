@@ -5,6 +5,7 @@ const bcrypt = require("bcrypt");
 const Joi = require("joi");
 const jwt = require("jsonwebtoken");
 
+// Kullanici kayit islemleri
 const userRegister = async (req, res) => {
   const { name, surname, email, password } = req.body;
   try {
@@ -16,6 +17,17 @@ const userRegister = async (req, res) => {
       const data = await prisma.users.create({
         data: { name, surname, email, password: hashedPassword },
       });
+      const access_token = await createAccessToken(data);
+      const refresh_token = await createRefreshToken(data);
+      const userId = data.id;
+      const tokens = await prisma.usersTokens.create({
+        data: {
+          accessToken: access_token,
+          refreshToken: refresh_token,
+          usersId: userId,
+        },
+      });
+      console.log(tokens);
       res.status(202).json({
         error: false,
         message: "User create successful!",
@@ -47,16 +59,26 @@ const userRegister = async (req, res) => {
     });
   }
 };
+
+// kullanici login islemleri
 const userLogin = async (req, res) => {
   const { email, password } = req.body;
   try {
     const emailControl = await checkEmail(email);
     const passwordControl = await checkPassword(email, password);
     if (emailControl && passwordControl == true) {
+      const access_token = await createAccessToken(emailControl);
+      const refresh_token = await createRefreshToken(emailControl);
+      const updateTokens = await prisma.usersTokens.updateMany({
+        where: { usersId: emailControl.id },
+        data: { accessToken: access_token, refreshToken: refresh_token },
+      });
       return res.status(202).json({
         error: false,
         message: "Login successful!",
         data: emailControl,
+        accessToken: access_token,
+        refreshToken: refresh_token,
       });
     } else {
       return res.status(404).json({
@@ -73,12 +95,72 @@ const userLogin = async (req, res) => {
     });
   }
 };
+
+// Kullanici sifre degisikligi
+const changePassword = async (req, res) => {
+  const { currentPassword, newPassword, newPasswordConfirm, accessToken } =
+    req.body;
+
+  try {
+    const userData = jwt.decode(accessToken);
+    const passwordControl = await checkPassword(
+      userData.email,
+      currentPassword
+    );
+    const checkSamePassword = currentPassword == newPassword;
+    if (
+      passwordControl &&
+      newPassword == newPasswordConfirm &&
+      !checkSamePassword
+    ) {
+      const email = userData.email;
+      const hashedNewPassword = await bcrypt.hash(newPassword, 15);
+      const updatePassword = await prisma.users.updateMany({
+        where: { email: email },
+        data: { password: hashedNewPassword },
+      });
+      return res.status(202).json({
+        error: false,
+        message: "Password updated!",
+        data: updatePassword,
+      });
+    } else if (!passwordControl) {
+      return res.status(404).json({
+        error: false,
+        message: "Wrong Current Password!",
+        data: false,
+      });
+    } else if (checkSamePassword) {
+      return res.status(404).json({
+        error: false,
+        message: "Your new password cannot be the same as your old password!",
+        data: null,
+      });
+    } else {
+      return res.status(404).json({
+        error: true,
+        message: "Doesn't match new password and confirm password!",
+        data: null,
+      });
+    }
+  } catch (error) {
+    return res.status(404).json({
+      error: true,
+      message: error,
+      data: null,
+    });
+  }
+};
+
+// Email user kontrolu
 async function checkEmail(email) {
   const userMailCheck = await prisma.users.findFirst({
     where: { email: email },
   });
   return userMailCheck;
 }
+
+// Parola kontrolu
 async function checkPassword(email, password) {
   const user = await checkEmail(email);
   if (user) {
@@ -88,7 +170,44 @@ async function checkPassword(email, password) {
   return false;
 }
 
+// Access token olustur
+async function createAccessToken(user) {
+  const accessToken = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
+    expiresIn: "1h",
+  });
+  return accessToken;
+}
+
+// Refresh token olustur
+async function createRefreshToken(user) {
+  const refreshToken = jwt.sign(user, process.env.REFRESH_TOKEN_SECRET);
+  return refreshToken;
+}
+
+// Access Token Guncelleme
+async function refreshAccessToken(refreshToken, user) {
+  const verifyToken = jwt.verify(
+    refreshToken,
+    process.env.REFRESH_TOKEN_SECRET
+  );
+  if (verifyToken) {
+    const accessToken = await createAccessToken(user);
+    const data = await prisma.usersTokens.update({
+      where: {
+        usersId: user.id,
+      },
+      data: {
+        accessToken,
+      },
+    });
+    return true;
+  } else {
+    return false;
+  }
+}
+
 module.exports = {
   userRegister,
   userLogin,
+  changePassword,
 };
