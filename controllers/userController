@@ -19,6 +19,7 @@ const userRegister = async (req, res) => {
       });
       const access_token = await createAccessToken(data);
       const refresh_token = await createRefreshToken(data);
+      // const signAccess_Token = await signAccessToken(access_token);
       const userId = data.id;
       const tokens = await prisma.usersTokens.create({
         data: {
@@ -28,11 +29,20 @@ const userRegister = async (req, res) => {
         },
       });
       console.log(tokens);
-      res.status(202).json({
-        error: false,
-        message: "User create successful!",
-        data: data,
-      });
+      res
+        .cookie("refreshToken", refresh_token, {
+          httpOnly: true,
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 1 hafta (7 gün)
+          secure: process.env.NODE_ENV === "production", // Sadece HTTPS üzerinde çalışsın
+          sameSite: "Strict", // Güvenlik için
+        })
+        .set("Authorization", "Bearer " + access_token)
+        .status(202)
+        .json({
+          error: false,
+          message: "User create successful!",
+          data: data,
+        });
     } else if (mailControl) {
       res.status(404).json({
         error: true,
@@ -69,17 +79,26 @@ const userLogin = async (req, res) => {
     if (emailControl && passwordControl == true) {
       const access_token = await createAccessToken(emailControl);
       const refresh_token = await createRefreshToken(emailControl);
+      // const signAccess = await signAccessToken(access_token);
       const updateTokens = await prisma.usersTokens.updateMany({
         where: { usersId: emailControl.id },
         data: { accessToken: access_token, refreshToken: refresh_token },
       });
-      return res.status(202).json({
-        error: false,
-        message: "Login successful!",
-        data: emailControl,
-        accessToken: access_token,
-        refreshToken: refresh_token,
-      });
+      return res
+        .cookie("refreshToken", refresh_token, {
+          httpOnly: true,
+          maxAge: 7 * 24 * 60 * 60 * 1000, // 1 hafta (7 gün)
+          secure: process.env.NODE_ENV === "production", // Sadece HTTPS üzerinde çalışsın
+          sameSite: "Strict", // Güvenlik için
+        })
+        .status(202)
+        .json({
+          error: false,
+          message: "Login successful!",
+          data: emailControl,
+          accessToken: access_token,
+          refreshToken: refresh_token,
+        });
     } else {
       return res.status(404).json({
         error: true,
@@ -205,6 +224,11 @@ async function refreshAccessToken(refreshToken, user) {
     return false;
   }
 }
+
+// async function signAccessToken(access_token) {
+//   localStorage.setItem("accessToken", access_token); // access token local storage kaydetme
+//   return lssign;
+// }
 
 module.exports = {
   userRegister,
